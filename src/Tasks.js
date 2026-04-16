@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import API from "./api";
 
 export default function Tasks() {
@@ -88,20 +88,20 @@ export default function Tasks() {
         }
     };
 
-    const loadTasks = async () => {
-        try {
-            const res = await API.get("/tasks");
-            setTasks(res.data);
-            checkUpcomingTasks(res.data);
-        } catch (error) {
-            console.log("LOAD TASKS ERROR:", error);
-            alert("Failed to load tasks");
-        }
-    };
+    const loadTasks = useCallback(async () => {
+    try {
+        const res = await API.get("/tasks");
+        setTasks(res.data);
+        checkUpcomingTasks(res.data);
+    } catch (error) {
+        console.log("LOAD TASKS ERROR:", error);
+        alert("Failed to load tasks");
+    }
+}, []);
 
     useEffect(() => {
-        loadTasks();
-    }, []);
+    loadTasks();
+}, [loadTasks]);
 
     useEffect(() => {
         const interval = setInterval(() => {
