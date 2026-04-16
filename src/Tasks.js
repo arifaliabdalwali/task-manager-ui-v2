@@ -22,24 +22,67 @@ export default function Tasks() {
     const [editCategory, setEditCategory] = useState("");
     const [editDueDate, setEditDueDate] = useState("");
     const [editCompleted, setEditCompleted] = useState(false);
+    const [alerts, setAlerts] = useState([]);
+    const requestNotificationPermission = async () => {
+    if ("Notification" in window) {
+        const permission = await Notification.requestPermission();
+        if (permission === "granted") {
+            alert("Notifications enabled");
+        } else {
+            alert("Notifications denied");
+        }
+    } else {
+        alert("This browser does not support notifications");
+    }
+};
 
     useEffect(() => {
         localStorage.setItem("darkMode", darkMode);
     }, [darkMode]);
 
-    const loadTasks = async () => {
-        try {
-            const res = await API.get("/tasks");
-            setTasks(res.data);
-        } catch (error) {
-            console.log("LOAD TASKS ERROR:", error);
-            alert("Failed to load tasks");
-        }
-    };
+  const loadTasks = async () => {
+    try {
+        const res = await API.get("/tasks");
+        setTasks(res.data);
+        checkUpcomingTasks(res.data);
+    } catch (error) {
+        console.log("LOAD TASKS ERROR:", error);
+        alert("Failed to load tasks");
+    }
+};
 
     useEffect(() => {
-        loadTasks();
-    }, []);
+    const interval = setInterval(() => {
+        checkUpcomingTasks(tasks);
+    }, 60000); // كل دقيقة
+
+    return () => clearInterval(interval);
+}, [tasks]);
+    const checkUpcomingTasks = (taskList) => {
+    const now = new Date();
+
+    const upcoming = taskList.filter((task) => {
+        if (!task.dueDate || task.isCompleted) return false;
+
+        const due = new Date(task.dueDate);
+        const diffMs = due - now;
+        const diffMinutes = diffMs / (1000 * 60);
+
+        // تنبيه إذا الموعد خلال 60 دقيقة
+        return diffMinutes > 0 && diffMinutes <= 60;
+    });
+
+    setAlerts(upcoming);
+
+    // إشعار المتصفح
+    if (Notification.permission === "granted") {
+        upcoming.forEach((task) => {
+            new Notification("Task Reminder", {
+                body: `${task.title} is due soon`,
+            });
+        });
+    }
+};
 
     const addTask = async () => {
         if (!title.trim()) {
@@ -434,6 +477,12 @@ export default function Tasks() {
                     <button style={styles.logoutBtn} onClick={handleLogout}>
                         Logout
                     </button>
+                    <button
+    style={styles.toggleBtn}
+    onClick={requestNotificationPermission}
+>
+    Enable Alerts
+</button>
                 </div>
             </nav>
 
@@ -618,9 +667,21 @@ export default function Tasks() {
                                 Save Changes
                             </button>
                         </div>
+
                     </div>
                 </div>
             )}
+
+            {alerts.length > 0 && (
+    <div style={styles.card}>
+        <div style={styles.sectionTitle}>Upcoming Reminders</div>
+        {alerts.map((task) => (
+            <div key={task.id} style={{ marginBottom: "10px", color: "#f59e0b", fontWeight: "700" }}>
+                ⏰ {task.title} is due soon ({formatDate(task.dueDate)})
+            </div>
+        ))}
+    </div>
+)}
         </div>
     );
 }
