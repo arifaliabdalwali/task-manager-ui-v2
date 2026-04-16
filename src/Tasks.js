@@ -1,17 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import API from "./api";
 
 export default function Tasks() {
     const [tasks, setTasks] = useState([]);
+
     const [title, setTitle] = useState("");
     const [category, setCategory] = useState("");
     const [dueDate, setDueDate] = useState("");
-
-    const [editId, setEditId] = useState(null);
-    const [editTitle, setEditTitle] = useState("");
-    const [editCategory, setEditCategory] = useState("");
-    const [editDueDate, setEditDueDate] = useState("");
 
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
@@ -21,41 +16,43 @@ export default function Tasks() {
         localStorage.getItem("darkMode") === "true"
     );
 
-    const navigate = useNavigate();
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editId, setEditId] = useState(null);
+    const [editTitle, setEditTitle] = useState("");
+    const [editCategory, setEditCategory] = useState("");
+    const [editDueDate, setEditDueDate] = useState("");
+    const [editCompleted, setEditCompleted] = useState(false);
+
+    useEffect(() => {
+        localStorage.setItem("darkMode", darkMode);
+    }, [darkMode]);
 
     const loadTasks = async () => {
         try {
             const res = await API.get("/tasks");
             setTasks(res.data);
         } catch (error) {
-            console.log(error);
+            console.log("LOAD TASKS ERROR:", error);
+            alert("Failed to load tasks");
         }
     };
 
     useEffect(() => {
-        const token = localStorage.getItem("token");
+        loadTasks();
+    }, []);
 
-        if (!token) {
-            navigate("/");
+    const addTask = async () => {
+        if (!title.trim()) {
+            alert("Task title is required");
             return;
         }
 
-        loadTasks();
-    }, [navigate]);
-
-    useEffect(() => {
-        localStorage.setItem("darkMode", darkMode);
-    }, [darkMode]);
-
-    const addTask = async () => {
-        if (!title.trim()) return;
-
         try {
             await API.post("/tasks", {
-                title,
-                isCompleted: false,
-                category,
-                dueDate: dueDate || null
+                title: title.trim(),
+                category: category.trim(),
+                dueDate: dueDate || null,
+                isCompleted: false
             });
 
             setTitle("");
@@ -63,45 +60,21 @@ export default function Tasks() {
             setDueDate("");
             loadTasks();
         } catch (error) {
-            console.log(error);
+            console.log("ADD TASK ERROR:", error);
+            alert("Failed to add task");
         }
     };
 
     const deleteTask = async (id) => {
+        const confirmed = window.confirm("Are you sure you want to delete this task?");
+        if (!confirmed) return;
+
         try {
             await API.delete(`/tasks/${id}`);
             loadTasks();
         } catch (error) {
-            console.log(error);
-        }
-    };
-
-    const startEdit = (task) => {
-        setEditId(task.id);
-        setEditTitle(task.title || "");
-        setEditCategory(task.category || "");
-        setEditDueDate(formatDateForInput(task.dueDate));
-    };
-
-    const updateTask = async () => {
-        try {
-            const oldTask = tasks.find((t) => t.id === editId);
-            if (!oldTask) return;
-
-            await API.put(`/tasks/${editId}`, {
-                title: editTitle,
-                isCompleted: oldTask.isCompleted,
-                category: editCategory,
-                dueDate: editDueDate || null
-            });
-
-            setEditId(null);
-            setEditTitle("");
-            setEditCategory("");
-            setEditDueDate("");
-            loadTasks();
-        } catch (error) {
-            console.log(error);
+            console.log("DELETE TASK ERROR:", error);
+            alert("Failed to delete task");
         }
     };
 
@@ -109,192 +82,426 @@ export default function Tasks() {
         try {
             await API.put(`/tasks/${task.id}`, {
                 title: task.title,
-                isCompleted: !task.isCompleted,
                 category: task.category || "",
-                dueDate: task.dueDate || null
+                dueDate: task.dueDate,
+                isCompleted: !task.isCompleted
             });
 
             loadTasks();
         } catch (error) {
-            console.log(error);
+            console.log("TOGGLE COMPLETE ERROR:", error);
+            alert("Failed to update task status");
         }
     };
 
-    const logout = () => {
-        localStorage.removeItem("token");
-        navigate("/");
+    const openEditModal = (task) => {
+        setEditId(task.id);
+        setEditTitle(task.title || "");
+        setEditCategory(task.category || "");
+        setEditDueDate(task.dueDate ? task.dueDate.split("T")[0] : "");
+        setEditCompleted(task.isCompleted || false);
+        setShowEditModal(true);
     };
 
-    const completed = tasks.filter((t) => t.isCompleted).length;
-    const pending = tasks.length - completed;
+    const closeEditModal = () => {
+        setShowEditModal(false);
+        setEditId(null);
+        setEditTitle("");
+        setEditCategory("");
+        setEditDueDate("");
+        setEditCompleted(false);
+    };
 
-    const uniqueCategories = useMemo(() => {
-        const cats = tasks
-            .map((t) => (t.category || "").trim())
-            .filter((c) => c !== "");
-        return [...new Set(cats)];
+    const updateTask = async () => {
+        if (!editTitle.trim()) {
+            alert("Task title is required");
+            return;
+        }
+
+        try {
+            await API.put(`/tasks/${editId}`, {
+                title: editTitle.trim(),
+                category: editCategory.trim(),
+                dueDate: editDueDate || null,
+                isCompleted: editCompleted
+            });
+
+            closeEditModal();
+            loadTasks();
+        } catch (error) {
+            console.log("UPDATE TASK ERROR:", error);
+            alert("Failed to update task");
+        }
+    };
+
+    const categories = useMemo(() => {
+        const unique = [...new Set(tasks.map((t) => t.category).filter(Boolean))];
+        return unique;
     }, [tasks]);
 
     const filteredTasks = useMemo(() => {
         return tasks.filter((task) => {
-            const matchesSearch = (task.title || "")
+            const matchSearch = task.title
                 .toLowerCase()
                 .includes(search.toLowerCase());
 
-            const matchesStatus =
-                statusFilter === "all"
-                    ? true
-                    : statusFilter === "completed"
-                    ? task.isCompleted
-                    : !task.isCompleted;
+            const matchStatus =
+                statusFilter === "all" ||
+                (statusFilter === "completed" && task.isCompleted) ||
+                (statusFilter === "pending" && !task.isCompleted);
 
-            const matchesCategory =
-                categoryFilter === "all"
-                    ? true
-                    : (task.category || "") === categoryFilter;
+            const matchCategory =
+                categoryFilter === "all" || task.category === categoryFilter;
 
-            return matchesSearch && matchesStatus && matchesCategory;
+            return matchSearch && matchStatus && matchCategory;
         });
     }, [tasks, search, statusFilter, categoryFilter]);
 
-    const bg = darkMode ? "#0f172a" : "#f5f7fb";
-    const card = darkMode ? "#1e293b" : "#ffffff";
-    const text = darkMode ? "#ffffff" : "#111827";
-    const border = darkMode ? "#334155" : "#e5e7eb";
-    const inputBg = darkMode ? "#0f172a" : "#ffffff";
-    const muted = darkMode ? "#94a3b8" : "#6b7280";
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter((t) => t.isCompleted).length;
+    const pendingTasks = totalTasks - completedTasks;
+
+    const formatDate = (dateString) => {
+        if (!dateString) return "No due date";
+        const date = new Date(dateString);
+        if (Number.isNaN(date.getTime())) return "Invalid date";
+        return date.toLocaleDateString();
+    };
+
+    const styles = {
+        page: {
+            minHeight: "100vh",
+            backgroundColor: darkMode ? "#0f172a" : "#f1f5f9",
+            color: darkMode ? "#f8fafc" : "#0f172a",
+            transition: "all 0.3s ease"
+        },
+        navbar: {
+            background: darkMode
+                ? "linear-gradient(90deg, #020617, #0f172a)"
+                : "linear-gradient(90deg, #0f172a, #111827)",
+            color: "#fff",
+            padding: "20px 30px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            boxShadow: "0 4px 14px rgba(0,0,0,0.12)"
+        },
+        brand: {
+            fontSize: "20px",
+            fontWeight: "700",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px"
+        },
+        navButtons: {
+            display: "flex",
+            gap: "12px",
+            alignItems: "center"
+        },
+        toggleBtn: {
+            background: darkMode ? "#e5e7eb" : "#f8fafc",
+            color: "#111827",
+            border: "none",
+            padding: "10px 16px",
+            borderRadius: "12px",
+            cursor: "pointer",
+            fontWeight: "600"
+        },
+        logoutBtn: {
+            background: "#ef4444",
+            color: "#fff",
+            border: "none",
+            padding: "10px 16px",
+            borderRadius: "12px",
+            cursor: "pointer",
+            fontWeight: "600"
+        },
+        container: {
+            maxWidth: "940px",
+            margin: "20px auto",
+            padding: "0 20px 40px"
+        },
+        statsGrid: {
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: "14px",
+            marginBottom: "20px"
+        },
+        statCard: {
+            background: darkMode ? "#1e293b" : "#ffffff",
+            border: darkMode ? "1px solid #334155" : "1px solid #e5e7eb",
+            borderRadius: "16px",
+            padding: "24px",
+            textAlign: "center",
+            boxShadow: darkMode
+                ? "0 8px 20px rgba(0,0,0,0.25)"
+                : "0 8px 20px rgba(15,23,42,0.05)"
+        },
+        statLabel: {
+            fontSize: "15px",
+            fontWeight: "700",
+            marginBottom: "10px"
+        },
+        statValue: {
+            fontSize: "22px",
+            fontWeight: "800"
+        },
+        card: {
+            background: darkMode ? "#1e293b" : "#ffffff",
+            border: darkMode ? "1px solid #334155" : "1px solid #e5e7eb",
+            borderRadius: "16px",
+            padding: "18px",
+            marginBottom: "18px",
+            boxShadow: darkMode
+                ? "0 8px 20px rgba(0,0,0,0.25)"
+                : "0 8px 20px rgba(15,23,42,0.05)"
+        },
+        sectionTitle: {
+            fontSize: "16px",
+            fontWeight: "800",
+            marginBottom: "16px"
+        },
+        input: {
+            width: "100%",
+            padding: "12px 14px",
+            borderRadius: "12px",
+            border: darkMode ? "1px solid #475569" : "1px solid #d1d5db",
+            backgroundColor: darkMode ? "#0f172a" : "#ffffff",
+            color: darkMode ? "#f8fafc" : "#111827",
+            outline: "none",
+            marginBottom: "10px",
+            boxSizing: "border-box"
+        },
+        row: {
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "10px"
+        },
+        addBtn: {
+            background: "#2563eb",
+            color: "#fff",
+            border: "none",
+            padding: "10px 16px",
+            borderRadius: "12px",
+            cursor: "pointer",
+            fontWeight: "700",
+            marginTop: "4px"
+        },
+        filtersRow: {
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "10px"
+        },
+        taskCount: {
+            marginBottom: "10px",
+            color: darkMode ? "#cbd5e1" : "#475569"
+        },
+        taskCard: {
+            background: darkMode ? "#1e293b" : "#ffffff",
+            border: darkMode ? "1px solid #334155" : "1px solid #e5e7eb",
+            borderRadius: "14px",
+            padding: "14px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "14px",
+            marginBottom: "12px"
+        },
+        taskLeft: {
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "12px",
+            flex: 1
+        },
+        checkbox: {
+            marginTop: "4px",
+            width: "18px",
+            height: "18px",
+            cursor: "pointer"
+        },
+        taskTitle: (completed) => ({
+            fontWeight: "700",
+            textDecoration: completed ? "line-through" : "none",
+            opacity: completed ? 0.65 : 1,
+            marginBottom: "6px"
+        }),
+        taskMeta: {
+            fontSize: "14px",
+            color: darkMode ? "#cbd5e1" : "#64748b"
+        },
+        actions: {
+            display: "flex",
+            gap: "8px"
+        },
+        editBtn: {
+            background: "#e5e7eb",
+            color: "#111827",
+            border: "none",
+            padding: "8px 14px",
+            borderRadius: "10px",
+            cursor: "pointer",
+            fontWeight: "600"
+        },
+        deleteBtn: {
+            background: "#ef4444",
+            color: "#fff",
+            border: "none",
+            padding: "8px 14px",
+            borderRadius: "10px",
+            cursor: "pointer",
+            fontWeight: "600"
+        },
+        emptyText: {
+            textAlign: "center",
+            color: darkMode ? "#cbd5e1" : "#64748b",
+            padding: "20px 0"
+        },
+        modalOverlay: {
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "20px"
+        },
+        modal: {
+            width: "100%",
+            maxWidth: "480px",
+            background: darkMode ? "#1e293b" : "#ffffff",
+            color: darkMode ? "#f8fafc" : "#111827",
+            borderRadius: "18px",
+            padding: "22px",
+            boxShadow: "0 20px 50px rgba(0,0,0,0.25)"
+        },
+        modalTitle: {
+            fontSize: "20px",
+            fontWeight: "800",
+            marginBottom: "16px"
+        },
+        modalButtons: {
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: "10px",
+            marginTop: "8px"
+        },
+        saveBtn: {
+            background: "#2563eb",
+            color: "#fff",
+            border: "none",
+            padding: "10px 16px",
+            borderRadius: "12px",
+            cursor: "pointer",
+            fontWeight: "700"
+        },
+        cancelBtn: {
+            background: "#e5e7eb",
+            color: "#111827",
+            border: "none",
+            padding: "10px 16px",
+            borderRadius: "12px",
+            cursor: "pointer",
+            fontWeight: "700"
+        },
+        modalCheck: {
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            marginBottom: "12px",
+            fontSize: "14px"
+        }
+    };
+
+    const handleLogout = () => {
+        localStorage.removeItem("token");
+        window.location.href = "/";
+    };
 
     return (
-        <div
-            style={{
-                minHeight: "100vh",
-                background: bg,
-                color: text,
-                fontFamily: "Arial, sans-serif"
-            }}
-        >
-            <div
-                style={{
-                    background: darkMode ? "#020617" : "#111827",
-                    color: "white",
-                    padding: "15px 25px",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center"
-                }}
-            >
-                <h2 style={{ margin: 0 }}>🚀 Task Manager</h2>
+        <div style={styles.page}>
+            <nav style={styles.navbar}>
+                <div style={styles.brand}>🚀 Task Manager</div>
 
-                <div>
+                <div style={styles.navButtons}>
                     <button
+                        style={styles.toggleBtn}
                         onClick={() => setDarkMode(!darkMode)}
-                        style={{
-                            marginRight: "10px",
-                            padding: "10px 14px",
-                            borderRadius: "8px",
-                            border: "none",
-                            cursor: "pointer"
-                        }}
                     >
-                        {darkMode ? "☀ Light" : "🌙 Dark"}
+                        {darkMode ? "🌙 Dark" : "☀️ Light"}
                     </button>
 
-                    <button
-                        onClick={logout}
-                        style={{
-                            background: "red",
-                            color: "white",
-                            padding: "10px 14px",
-                            borderRadius: "8px",
-                            border: "none",
-                            cursor: "pointer"
-                        }}
-                    >
+                    <button style={styles.logoutBtn} onClick={handleLogout}>
                         Logout
                     </button>
                 </div>
-            </div>
+            </nav>
 
-            <div style={{ maxWidth: "1000px", margin: "auto", padding: "20px" }}>
-                <div
-                    style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                        gap: "12px",
-                        marginBottom: "20px"
-                    }}
-                >
-                    <StatBox title="Total" value={tasks.length} darkMode={darkMode} />
-                    <StatBox title="Done" value={completed} darkMode={darkMode} />
-                    <StatBox title="Pending" value={pending} darkMode={darkMode} />
+            <div style={styles.container}>
+                <div style={styles.statsGrid}>
+                    <div style={styles.statCard}>
+                        <div style={styles.statLabel}>Total</div>
+                        <div style={styles.statValue}>{totalTasks}</div>
+                    </div>
+
+                    <div style={styles.statCard}>
+                        <div style={styles.statLabel}>Done</div>
+                        <div style={styles.statValue}>{completedTasks}</div>
+                    </div>
+
+                    <div style={styles.statCard}>
+                        <div style={styles.statLabel}>Pending</div>
+                        <div style={styles.statValue}>{pendingTasks}</div>
+                    </div>
                 </div>
 
-                <div
-                    style={{
-                        background: card,
-                        padding: "15px",
-                        borderRadius: "10px",
-                        marginBottom: "20px",
-                        border: `1px solid ${border}`
-                    }}
-                >
-                    <h3>Add Task</h3>
+                <div style={styles.card}>
+                    <div style={styles.sectionTitle}>Add Task</div>
 
                     <input
+                        type="text"
                         placeholder="Task title"
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
-                        style={inputStyle(inputBg, text, border)}
+                        style={styles.input}
                     />
 
                     <input
+                        type="text"
                         placeholder="Category"
                         value={category}
                         onChange={(e) => setCategory(e.target.value)}
-                        style={inputStyle(inputBg, text, border)}
+                        style={styles.input}
                     />
 
                     <input
                         type="date"
                         value={dueDate}
                         onChange={(e) => setDueDate(e.target.value)}
-                        style={inputStyle(inputBg, text, border)}
+                        style={styles.input}
                     />
 
-                    <button onClick={addTask} style={primaryButtonStyle()}>
+                    <button style={styles.addBtn} onClick={addTask}>
                         Add Task
                     </button>
                 </div>
 
-                <div
-                    style={{
-                        background: card,
-                        padding: "15px",
-                        borderRadius: "10px",
-                        marginBottom: "20px",
-                        border: `1px solid ${border}`
-                    }}
-                >
-                    <h3>Search & Filter</h3>
+                <div style={styles.card}>
+                    <div style={styles.sectionTitle}>Search & Filter</div>
 
                     <input
+                        type="text"
                         placeholder="Search by title..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        style={inputStyle(inputBg, text, border)}
+                        style={styles.input}
                     />
 
-                    <div
-                        style={{
-                            display: "grid",
-                            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                            gap: "10px"
-                        }}
-                    >
+                    <div style={styles.filtersRow}>
                         <select
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value)}
-                            style={inputStyle(inputBg, text, border)}
+                            style={styles.input}
                         >
                             <option value="all">All Tasks</option>
                             <option value="completed">Completed</option>
@@ -304,10 +511,10 @@ export default function Tasks() {
                         <select
                             value={categoryFilter}
                             onChange={(e) => setCategoryFilter(e.target.value)}
-                            style={inputStyle(inputBg, text, border)}
+                            style={styles.input}
                         >
                             <option value="all">All Categories</option>
-                            {uniqueCategories.map((cat) => (
+                            {categories.map((cat) => (
                                 <option key={cat} value={cat}>
                                     {cat}
                                 </option>
@@ -316,136 +523,47 @@ export default function Tasks() {
                     </div>
                 </div>
 
-                {editId && (
-                    <div
-                        style={{
-                            background: card,
-                            padding: "15px",
-                            borderRadius: "10px",
-                            marginBottom: "20px",
-                            border: `1px solid ${border}`
-                        }}
-                    >
-                        <h3>Edit Task</h3>
-
-                        <input
-                            value={editTitle}
-                            onChange={(e) => setEditTitle(e.target.value)}
-                            placeholder="Task title"
-                            style={inputStyle(inputBg, text, border)}
-                        />
-
-                        <input
-                            value={editCategory}
-                            onChange={(e) => setEditCategory(e.target.value)}
-                            placeholder="Category"
-                            style={inputStyle(inputBg, text, border)}
-                        />
-
-                        <input
-                            type="date"
-                            value={editDueDate}
-                            onChange={(e) => setEditDueDate(e.target.value)}
-                            style={inputStyle(inputBg, text, border)}
-                        />
-
-                        <div style={{ display: "flex", gap: "10px" }}>
-                            <button onClick={updateTask} style={successButtonStyle()}>
-                                Save
-                            </button>
-
-                            <button
-                                onClick={() => {
-                                    setEditId(null);
-                                    setEditTitle("");
-                                    setEditCategory("");
-                                    setEditDueDate("");
-                                }}
-                                style={secondaryButtonStyle()}
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                <div style={{ marginBottom: "10px", color: muted }}>
+                <div style={styles.taskCount}>
                     Showing {filteredTasks.length} of {tasks.length} tasks
                 </div>
 
                 {filteredTasks.length === 0 ? (
-                    <div
-                        style={{
-                            background: card,
-                            padding: "20px",
-                            borderRadius: "10px",
-                            border: `1px solid ${border}`,
-                            color: muted
-                        }}
-                    >
-                        No tasks found
+                    <div style={styles.card}>
+                        <div style={styles.emptyText}>No tasks found</div>
                     </div>
                 ) : (
                     filteredTasks.map((task) => (
-                        <div
-                            key={task.id}
-                            style={{
-                                background: card,
-                                padding: "15px",
-                                marginBottom: "10px",
-                                borderRadius: "10px",
-                                border: `1px solid ${border}`,
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "flex-start",
-                                gap: "10px"
-                            }}
-                        >
-                            <div style={{ flex: 1 }}>
-                                <div style={{ display: "flex", alignItems: "center" }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={task.isCompleted}
-                                        onChange={() => toggleComplete(task)}
-                                    />
+                        <div key={task.id} style={styles.taskCard}>
+                            <div style={styles.taskLeft}>
+                                <input
+                                    type="checkbox"
+                                    checked={task.isCompleted}
+                                    onChange={() => toggleComplete(task)}
+                                    style={styles.checkbox}
+                                />
 
-                                    <span
-                                        style={{
-                                            marginLeft: "10px",
-                                            fontWeight: "bold",
-                                            textDecoration: task.isCompleted
-                                                ? "line-through"
-                                                : "none",
-                                            color: task.isCompleted ? muted : text
-                                        }}
-                                    >
+                                <div>
+                                    <div style={styles.taskTitle(task.isCompleted)}>
                                         {task.title}
-                                    </span>
-                                </div>
-
-                                <div
-                                    style={{
-                                        marginTop: "6px",
-                                        fontSize: "13px",
-                                        color: muted
-                                    }}
-                                >
-                                    Category: {task.category || "No category"} | Due:{" "}
-                                    {formatDateForDisplay(task.dueDate)}
+                                    </div>
+                                    <div style={styles.taskMeta}>
+                                        Category: {task.category || "None"} | Due:{" "}
+                                        {formatDate(task.dueDate)}
+                                    </div>
                                 </div>
                             </div>
 
-                            <div style={{ display: "flex", gap: "8px" }}>
+                            <div style={styles.actions}>
                                 <button
-                                    onClick={() => startEdit(task)}
-                                    style={secondaryButtonStyle()}
+                                    style={styles.editBtn}
+                                    onClick={() => openEditModal(task)}
                                 >
                                     Edit
                                 </button>
 
                                 <button
+                                    style={styles.deleteBtn}
                                     onClick={() => deleteTask(task.id)}
-                                    style={dangerButtonStyle()}
                                 >
                                     Delete
                                 </button>
@@ -454,99 +572,55 @@ export default function Tasks() {
                     ))
                 )}
             </div>
+
+            {showEditModal && (
+                <div style={styles.modalOverlay} onClick={closeEditModal}>
+                    <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+                        <div style={styles.modalTitle}>Edit Task</div>
+
+                        <input
+                            type="text"
+                            placeholder="Task title"
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            style={styles.input}
+                        />
+
+                        <input
+                            type="text"
+                            placeholder="Category"
+                            value={editCategory}
+                            onChange={(e) => setEditCategory(e.target.value)}
+                            style={styles.input}
+                        />
+
+                        <input
+                            type="date"
+                            value={editDueDate}
+                            onChange={(e) => setEditDueDate(e.target.value)}
+                            style={styles.input}
+                        />
+
+                        <label style={styles.modalCheck}>
+                            <input
+                                type="checkbox"
+                                checked={editCompleted}
+                                onChange={(e) => setEditCompleted(e.target.checked)}
+                            />
+                            Mark as completed
+                        </label>
+
+                        <div style={styles.modalButtons}>
+                            <button style={styles.cancelBtn} onClick={closeEditModal}>
+                                Cancel
+                            </button>
+                            <button style={styles.saveBtn} onClick={updateTask}>
+                                Save Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
-}
-
-function StatBox({ title, value, darkMode }) {
-    return (
-        <div
-            style={{
-                background: darkMode ? "#1e293b" : "#ffffff",
-                color: darkMode ? "white" : "#111827",
-                padding: "16px",
-                borderRadius: "10px",
-                textAlign: "center",
-                border: darkMode ? "1px solid #334155" : "1px solid #e5e7eb"
-            }}
-        >
-            <h4 style={{ margin: "0 0 10px 0" }}>{title}</h4>
-            <h2 style={{ margin: 0 }}>{value}</h2>
-        </div>
-    );
-}
-
-function inputStyle(bg, color, border) {
-    return {
-        width: "100%",
-        marginBottom: "10px",
-        padding: "10px",
-        borderRadius: "8px",
-        border: `1px solid ${border}`,
-        background: bg,
-        color: color,
-        boxSizing: "border-box"
-    };
-}
-
-function primaryButtonStyle() {
-    return {
-        background: "#2563eb",
-        color: "white",
-        padding: "10px 14px",
-        borderRadius: "8px",
-        border: "none",
-        cursor: "pointer"
-    };
-}
-
-function successButtonStyle() {
-    return {
-        background: "#16a34a",
-        color: "white",
-        padding: "10px 14px",
-        borderRadius: "8px",
-        border: "none",
-        cursor: "pointer"
-    };
-}
-
-function secondaryButtonStyle() {
-    return {
-        background: "#e5e7eb",
-        color: "#111827",
-        padding: "10px 14px",
-        borderRadius: "8px",
-        border: "none",
-        cursor: "pointer"
-    };
-}
-
-function dangerButtonStyle() {
-    return {
-        background: "#dc2626",
-        color: "white",
-        padding: "10px 14px",
-        borderRadius: "8px",
-        border: "none",
-        cursor: "pointer"
-    };
-}
-
-function formatDateForInput(dateValue) {
-    if (!dateValue) return "";
-
-    const date = new Date(dateValue);
-    if (isNaN(date.getTime())) return "";
-
-    return date.toISOString().split("T")[0];
-}
-
-function formatDateForDisplay(dateValue) {
-    if (!dateValue) return "No date";
-
-    const date = new Date(dateValue);
-    if (isNaN(date.getTime())) return "No date";
-
-    return date.toLocaleDateString();
 }
