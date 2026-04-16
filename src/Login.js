@@ -1,20 +1,21 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import API from "./api";
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
-export default function Login() {
 
+export default function Login() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
 
     const navigate = useNavigate();
-  useEffect(() => {
-    const token = localStorage.getItem("token");
 
-    if (token) {
-        navigate("/tasks");
-    }
-}, []);
+    useEffect(() => {
+        const token = localStorage.getItem("token");
+
+        if (token) {
+            navigate("/tasks");
+        }
+    }, [navigate]);
+
     const login = async () => {
         try {
             const res = await API.post("/auth/login", {
@@ -27,13 +28,10 @@ export default function Login() {
             localStorage.setItem("token", res.data.token);
 
             navigate("/tasks");
-
         } catch (error) {
             console.log("LOGIN ERROR:", error);
             alert("Login failed");
         }
-      
-
     };
 
     return (
@@ -54,12 +52,13 @@ export default function Login() {
             />
 
             <button onClick={login}>Login</button>
+
             <p style={{ marginTop: "15px" }}>
-    Don't have account?
-    <button onClick={() => navigate("/register")}>
-        Register
-    </button>
-</p>
+                Don't have account?
+                <button onClick={() => navigate("/register")}>
+                    Register
+                </button>
+            </p>
         </div>
     );
 }
