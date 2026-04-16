@@ -22,67 +22,94 @@ export default function Tasks() {
     const [editCategory, setEditCategory] = useState("");
     const [editDueDate, setEditDueDate] = useState("");
     const [editCompleted, setEditCompleted] = useState(false);
+
     const [alerts, setAlerts] = useState([]);
-    const requestNotificationPermission = async () => {
-    if ("Notification" in window) {
-        const permission = await Notification.requestPermission();
-        if (permission === "granted") {
-            alert("Notifications enabled");
-        } else {
-            alert("Notifications denied");
-        }
-    } else {
-        alert("This browser does not support notifications");
-    }
-};
 
     useEffect(() => {
         localStorage.setItem("darkMode", darkMode);
     }, [darkMode]);
 
-  const loadTasks = async () => {
-    try {
-        const res = await API.get("/tasks");
-        setTasks(res.data);
-        checkUpcomingTasks(res.data);
-    } catch (error) {
-        console.log("LOAD TASKS ERROR:", error);
-        alert("Failed to load tasks");
-    }
-};
+    const formatDate = (dateString) => {
+        if (!dateString) return "No due date";
+        const date = new Date(dateString);
+        if (Number.isNaN(date.getTime())) return "Invalid date";
+        return date.toLocaleDateString();
+    };
+
+    const formatDateTime = (dateString) => {
+        if (!dateString) return "No due date";
+        const date = new Date(dateString);
+        if (Number.isNaN(date.getTime())) return "Invalid date";
+        return date.toLocaleString();
+    };
+
+    const requestNotificationPermission = async () => {
+        if (!("Notification" in window)) {
+            alert("This browser does not support notifications");
+            return;
+        }
+
+        const permission = await Notification.requestPermission();
+
+        if (permission === "granted") {
+            alert("Notifications enabled");
+        } else {
+            alert("Notifications denied");
+        }
+    };
+
+    const checkUpcomingTasks = (taskList) => {
+        const now = new Date();
+
+        const upcoming = taskList.filter((task) => {
+            if (!task.dueDate || task.isCompleted) return false;
+
+            const due = new Date(task.dueDate);
+            const diffMs = due - now;
+            const diffMinutes = diffMs / (1000 * 60);
+
+            return diffMinutes > 0 && diffMinutes <= 60;
+        });
+
+        setAlerts(upcoming);
+
+        if ("Notification" in window && Notification.permission === "granted") {
+            upcoming.forEach((task) => {
+                const notifiedKey = `notified-task-${task.id}-${task.dueDate}`;
+
+                if (!localStorage.getItem(notifiedKey)) {
+                    new Notification("Task Reminder", {
+                        body: `${task.title} is due soon`
+                    });
+
+                    localStorage.setItem(notifiedKey, "true");
+                }
+            });
+        }
+    };
+
+    const loadTasks = async () => {
+        try {
+            const res = await API.get("/tasks");
+            setTasks(res.data);
+            checkUpcomingTasks(res.data);
+        } catch (error) {
+            console.log("LOAD TASKS ERROR:", error);
+            alert("Failed to load tasks");
+        }
+    };
 
     useEffect(() => {
-    const interval = setInterval(() => {
-        checkUpcomingTasks(tasks);
-    }, 60000); // كل دقيقة
+        loadTasks();
+    }, []);
 
-    return () => clearInterval(interval);
-}, [tasks]);
-    const checkUpcomingTasks = (taskList) => {
-    const now = new Date();
+    useEffect(() => {
+        const interval = setInterval(() => {
+            checkUpcomingTasks(tasks);
+        }, 60000);
 
-    const upcoming = taskList.filter((task) => {
-        if (!task.dueDate || task.isCompleted) return false;
-
-        const due = new Date(task.dueDate);
-        const diffMs = due - now;
-        const diffMinutes = diffMs / (1000 * 60);
-
-        // تنبيه إذا الموعد خلال 60 دقيقة
-        return diffMinutes > 0 && diffMinutes <= 60;
-    });
-
-    setAlerts(upcoming);
-
-    // إشعار المتصفح
-    if (Notification.permission === "granted") {
-        upcoming.forEach((task) => {
-            new Notification("Task Reminder", {
-                body: `${task.title} is due soon`,
-            });
-        });
-    }
-};
+        return () => clearInterval(interval);
+    }, [tasks]);
 
     const addTask = async () => {
         if (!title.trim()) {
@@ -204,13 +231,6 @@ export default function Tasks() {
     const completedTasks = tasks.filter((t) => t.isCompleted).length;
     const pendingTasks = totalTasks - completedTasks;
 
-    const formatDate = (dateString) => {
-        if (!dateString) return "No due date";
-        const date = new Date(dateString);
-        if (Number.isNaN(date.getTime())) return "Invalid date";
-        return date.toLocaleDateString();
-    };
-
     const styles = {
         page: {
             minHeight: "100vh",
@@ -315,7 +335,7 @@ export default function Tasks() {
             marginBottom: "10px",
             boxSizing: "border-box"
         },
-        row: {
+        filtersRow: {
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
             gap: "10px"
@@ -329,11 +349,6 @@ export default function Tasks() {
             cursor: "pointer",
             fontWeight: "700",
             marginTop: "4px"
-        },
-        filtersRow: {
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "10px"
         },
         taskCount: {
             marginBottom: "10px",
@@ -453,6 +468,11 @@ export default function Tasks() {
             gap: "8px",
             marginBottom: "12px",
             fontSize: "14px"
+        },
+        reminderItem: {
+            marginBottom: "10px",
+            color: "#f59e0b",
+            fontWeight: "700"
         }
     };
 
@@ -469,6 +489,13 @@ export default function Tasks() {
                 <div style={styles.navButtons}>
                     <button
                         style={styles.toggleBtn}
+                        onClick={requestNotificationPermission}
+                    >
+                        Enable Alerts
+                    </button>
+
+                    <button
+                        style={styles.toggleBtn}
                         onClick={() => setDarkMode(!darkMode)}
                     >
                         {darkMode ? "🌙 Dark" : "☀️ Light"}
@@ -477,12 +504,6 @@ export default function Tasks() {
                     <button style={styles.logoutBtn} onClick={handleLogout}>
                         Logout
                     </button>
-                    <button
-    style={styles.toggleBtn}
-    onClick={requestNotificationPermission}
->
-    Enable Alerts
-</button>
                 </div>
             </nav>
 
@@ -503,6 +524,17 @@ export default function Tasks() {
                         <div style={styles.statValue}>{pendingTasks}</div>
                     </div>
                 </div>
+
+                {alerts.length > 0 && (
+                    <div style={styles.card}>
+                        <div style={styles.sectionTitle}>Upcoming Reminders</div>
+                        {alerts.map((task) => (
+                            <div key={task.id} style={styles.reminderItem}>
+                                ⏰ {task.title} is due soon ({formatDateTime(task.dueDate)})
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 <div style={styles.card}>
                     <div style={styles.sectionTitle}>Add Task</div>
@@ -667,21 +699,9 @@ export default function Tasks() {
                                 Save Changes
                             </button>
                         </div>
-
                     </div>
                 </div>
             )}
-
-            {alerts.length > 0 && (
-    <div style={styles.card}>
-        <div style={styles.sectionTitle}>Upcoming Reminders</div>
-        {alerts.map((task) => (
-            <div key={task.id} style={{ marginBottom: "10px", color: "#f59e0b", fontWeight: "700" }}>
-                ⏰ {task.title} is due soon ({formatDate(task.dueDate)})
-            </div>
-        ))}
-    </div>
-)}
         </div>
     );
 }
